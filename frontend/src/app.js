@@ -1,164 +1,194 @@
+// frontend/src/App.js - COMPLETE FILE
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, Users, MessageCircle, Zap, Target, BarChart3, Play, Pause, AlertTriangle } from 'lucide-react';
+import { Activity, TrendingUp, MessageCircle, Zap, Target, AlertTriangle } from 'lucide-react';
 
 const SeeThePlayDashboard = () => {
   const [gameState, setGameState] = useState(null);
   const [predictions, setPredictions] = useState([]);
-  const [explanations, setExplanations] = useState({});
   const [isConnected, setIsConnected] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [liveEvents, setLiveEvents] = useState([]);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [scenario, setScenario] = useState(null);
+  const [ws, setWs] = useState(null);
 
-  // WebSocket connection (simulated for demo)
   useEffect(() => {
-    // Simulate WebSocket connection
-    setIsConnected(true);
-    
-    // Simulate initial game state
-    const initialGameState = {
-      game_id: 'sim_game_001',
-      quarter: 1,
-      time_remaining: '15:00',
-      home_team: 'Philadelphia Eagles',
-      away_team: 'Generic Opponents',
-      home_score: 0,
-      away_score: 0,
-      status: 'in_progress'
-    };
-    setGameState(initialGameState);
-
-    // Simulate initial predictions
-    const initialPredictions = [
-      {
-        prediction: {
-          player_id: 'player_001',
-          player_name: 'Jalen Hurts',
-          position: 'QB',
-          predictions: {
-            passing_yards: { predicted_value: 285.3, confidence: 0.847, probability_over: 0.73 },
-            rushing_yards: { predicted_value: 67.2, confidence: 0.782, probability_over: 0.68 },
-            touchdowns: { predicted_value: 2.1, confidence: 0.791, probability_over: 0.71 }
-          },
-          overall_confidence: 0.807
-        },
-        explanation: {
-          overall_summary: "Jalen Hurts (QB) is expected to have a strong overall performance today with excellent dual-threat capability.",
-          narrative_explanations: {
-            passing_yards: "Hurts is projected to achieve 285.3 passing yards with 84.7% confidence. The main driver is team pace, which strongly favors higher performance.",
-            rushing_yards: "Projected 67.2 rushing yards reflects his excellent mobility and designed runs in the offense."
-          }
-        }
-      },
-      {
-        prediction: {
-          player_id: 'player_002',
-          player_name: 'A.J. Brown',
-          position: 'WR',
-          predictions: {
-            receiving_yards: { predicted_value: 89.4, confidence: 0.823, probability_over: 0.76 },
-            touchdowns: { predicted_value: 0.8, confidence: 0.745, probability_over: 0.62 }
-          },
-          overall_confidence: 0.784
-        },
-        explanation: {
-          overall_summary: "A.J. Brown (WR) should see significant targets with good receiving production.",
-          narrative_explanations: {
-            receiving_yards: "Brown is projected for 89.4 receiving yards with strong target share expectations."
-          }
-        }
-      },
-      {
-        prediction: {
-          player_id: 'player_003',
-          player_name: 'D\'Andre Swift',
-          position: 'RB',
-          predictions: {
-            rushing_yards: { predicted_value: 78.6, confidence: 0.756, probability_over: 0.69 },
-            receiving_yards: { predicted_value: 34.2, confidence: 0.692, probability_over: 0.58 },
-            touchdowns: { predicted_value: 0.9, confidence: 0.738, probability_over: 0.64 }
-          },
-          overall_confidence: 0.729
-        },
-        explanation: {
-          overall_summary: "D'Andre Swift (RB) should have solid performance with both rushing and receiving opportunities.",
-          narrative_explanations: {
-            rushing_yards: "Swift projected for 78.6 rushing yards with moderate confidence due to game script uncertainty."
-          }
-        }
-      }
-    ];
-
-    setPredictions(initialPredictions);
-
-    // Simulate live events
-    let eventCount = 0;
-    const eventInterval = setInterval(() => {
-      if (eventCount < 20) {
-        const eventTypes = ['pass_completion', 'rush_attempt', 'touchdown', 'field_goal', 'sack'];
-        const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-        const player = initialPredictions[Math.floor(Math.random() * initialPredictions.length)];
+    const initializeDashboard = async () => {
+      try {
+        // Fetch Eagles team ID
+        const teamsResponse = await fetch('http://localhost:8000/api/predictions/teams');
+        const teams = await teamsResponse.json();
+        const eagles = teams.find(t => t.name === 'Eagles');
         
-        const newEvent = {
-          id: `event_${eventCount}`,
-          type: eventType,
-          timestamp: new Date().toISOString(),
-          player_name: player.prediction.player_name,
-          description: `${player.prediction.player_name} ${eventType.replace('_', ' ')}`,
-          quarter: Math.ceil(eventCount / 5),
-          impact: eventType === 'touchdown' ? 'positive' : eventType === 'sack' ? 'negative' : 'neutral'
+        if (!eagles) {
+          console.error('Eagles team not found');
+          loadDemoData();
+          return;
+        }
+        
+        // Fetch real predictions from backend
+        const predictionsResponse = await fetch(`http://localhost:8000/api/predictions/team/${eagles.id}/players?limit=10`);
+        const predictionsData = await predictionsResponse.json();
+        
+        // Transform backend data to frontend format
+        const transformedPredictions = predictionsData.predictions.map(pred => ({
+          prediction: pred,
+          explanation: {
+            overall_summary: `${pred.player_name} (${pred.position}) prediction based on ML analysis`,
+            narrative_explanations: Object.keys(pred.predictions).reduce((acc, stat) => {
+              acc[stat] = `Projected ${pred.predictions[stat].predicted_value} ${stat.replace('_', ' ')} with ${(pred.predictions[stat].confidence * 100).toFixed(0)}% confidence.`;
+              return acc;
+            }, {})
+          }
+        }));
+        
+        setPredictions(transformedPredictions);
+        
+        // Set initial game state
+        const initialGameState = {
+          game_id: 'sim_game_001',
+          quarter: 1,
+          time_remaining: '15:00',
+          home_team: 'Philadelphia Eagles',
+          away_team: 'Generic Opponents',
+          home_score: 0,
+          away_score: 0,
+          status: 'in_progress'
         };
+        setGameState(initialGameState);
         
-        setLiveEvents(prev => [newEvent, ...prev.slice(0, 9)]);
+      } catch (error) {
+        console.error('Error fetching predictions:', error);
+        loadDemoData();
+      }
+      
+      // Connect to WebSocket for live updates
+      const websocket = new WebSocket('ws://localhost:8000/ws');
+      
+      websocket.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setIsConnected(true);
+      };
+      
+      websocket.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        console.log('📩 WebSocket message:', message);
         
-        // Update predictions occasionally
-        if (eventCount % 3 === 0 && eventType === 'touchdown') {
-          setPredictions(prev => prev.map(p => {
-            if (p.prediction.player_id === player.prediction.player_id) {
-              return {
-                ...p,
-                prediction: {
-                  ...p.prediction,
-                  predictions: {
-                    ...p.prediction.predictions,
-                    touchdowns: {
-                      ...p.prediction.predictions.touchdowns,
-                      predicted_value: p.prediction.predictions.touchdowns?.predicted_value + 0.2 || 1.2,
-                      confidence: Math.min(0.95, (p.prediction.predictions.touchdowns?.confidence || 0.7) + 0.05)
-                    }
-                  }
+        if (message.type === 'game_initialized') {
+          setGameState(message.game_state);
+          
+          if (message.initial_predictions) {
+            setPredictions(message.initial_predictions);
+          }
+        } else if (message.type === 'live_update') {
+          setGameState(message.game_state);
+          
+          const newEvent = {
+            id: message.event.id,
+            type: message.event.type,
+            timestamp: message.timestamp,
+            player_name: message.event.player_name,
+            description: message.event.description,
+            quarter: message.event.quarter,
+            impact: message.event.impact || 'neutral'
+          };
+          setLiveEvents(prev => [newEvent, ...prev.slice(0, 9)]);
+          
+          if (message.updated_prediction) {
+            setPredictions(prev => prev.map(p => {
+              if (p.prediction.player_id === message.updated_prediction.player_id) {
+                return {
+                  prediction: message.updated_prediction,
+                  explanation: message.explanation
+                };
+              }
+              return p;
+            }));
+          }
+        } else if (message.type === 'scenario_update') {
+          if (message.updated_predictions) {
+            message.updated_predictions.forEach(update => {
+              setPredictions(prev => prev.map(p => {
+                if (p.prediction.player_id === update.prediction.player_id) {
+                  return update;
                 }
-              };
-            }
-            return p;
-          }));
+                return p;
+              }));
+            });
+          }
         }
-        
-        eventCount++;
-      } else {
-        clearInterval(eventInterval);
-      }
-    }, 4000);
-
-    // Add welcome message to chat
-    setChatMessages([
-      {
-        id: 'welcome',
-        type: 'system',
-        message: "Welcome to SeeThePlay! Ask me about player predictions, confidence levels, or what factors influence the forecasts.",
-        timestamp: new Date().toISOString()
-      }
-    ]);
-
-    return () => clearInterval(eventInterval);
+      };
+      
+      websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsConnected(false);
+      };
+      
+      websocket.onclose = () => {
+        console.log('WebSocket disconnected');
+        setIsConnected(false);
+      };
+      
+      setWs(websocket);
+      
+      setChatMessages([
+        {
+          id: 'welcome',
+          type: 'system',
+          message: "Welcome to SeeThePlay! Ask me about player predictions, confidence levels, or what factors influence the forecasts.",
+          timestamp: new Date().toISOString()
+        }
+      ]);
+      
+      return () => {
+        websocket.close();
+      };
+    };
+    
+    const loadDemoData = () => {
+      const demoData = [
+        {
+          prediction: {
+            player_id: 'player_001',
+            player_name: 'Jalen Hurts',
+            position: 'QB',
+            predictions: {
+              passing_yards: { predicted_value: 275.0, confidence: 0.850, probability_over: 0.72, live_stats: 0 },
+              rushing_yards: { predicted_value: 45.0, confidence: 0.780, probability_over: 0.68, live_stats: 0 },
+              touchdowns: { predicted_value: 2.1, confidence: 0.820, probability_over: 0.70, live_stats: 0 }
+            },
+            overall_confidence: 0.817
+          },
+          explanation: {
+            overall_summary: "Jalen Hurts (QB) is expected to have a strong overall performance today.",
+            narrative_explanations: {
+              passing_yards: "Projected 275 passing yards with 85% confidence.",
+            }
+          }
+        }
+      ];
+      setPredictions(demoData);
+      
+      const initialGameState = {
+        game_id: 'demo_game',
+        quarter: 1,
+        time_remaining: '15:00',
+        home_team: 'Philadelphia Eagles',
+        away_team: 'Generic Opponents',
+        home_score: 0,
+        away_score: 0,
+        status: 'in_progress'
+      };
+      setGameState(initialGameState);
+    };
+    
+    initializeDashboard();
   }, []);
 
-  const handleQuestionSubmit = () => {
+  const handleQuestionSubmit = async () => {
     if (!currentQuestion.trim()) return;
 
-    // Add user question
     const userMessage = {
       id: Date.now().toString(),
       type: 'user',
@@ -167,31 +197,45 @@ const SeeThePlayDashboard = () => {
     };
     setChatMessages(prev => [...prev, userMessage]);
 
-    // Simulate Cedar AI response
-    setTimeout(() => {
-      let response = "";
-      const question = currentQuestion.toLowerCase();
-      
-      if (question.includes('confidence')) {
-        response = "Confidence levels reflect how certain our model is about each prediction. High confidence (>80%) means strong consensus across all factors, while lower confidence indicates mixed signals or uncertainty.";
-      } else if (question.includes('yards')) {
-        response = "Yardage predictions are based on player skill, recent form, team offensive strength, opponent defense, and game context. Weather and game script can significantly impact these projections.";
-      } else if (question.includes('touchdown')) {
-        response = "Touchdown predictions consider red zone efficiency, goal line opportunities, player usage patterns, and game flow expectations. Higher-scoring games typically increase all touchdown probabilities.";
-      } else if (question.includes('why') || question.includes('how')) {
-        response = "Our predictions use machine learning models trained on historical data, considering factors like player performance, team dynamics, opponent strength, weather conditions, and real-time game events.";
-      } else {
-        response = "I can explain specific predictions, confidence levels, or the factors that influence our forecasts. Try asking about a particular stat or player!";
+    try {
+      const targetPlayer = selectedPlayer 
+        ? predictions.find(p => p.prediction.player_id === selectedPlayer)?.prediction
+        : predictions[0]?.prediction;
+
+      if (!targetPlayer) {
+        throw new Error('No player data available');
       }
 
+      const response = await fetch('http://localhost:8000/api/predictions/question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: currentQuestion,
+          player_data: targetPlayer
+        })
+      });
+
+      const data = await response.json();
+      
       const aiMessage = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        message: response,
+        message: data.answer,
         timestamp: new Date().toISOString()
       };
       setChatMessages(prev => [...prev, aiMessage]);
-    }, 1000);
+      
+    } catch (error) {
+      console.error('Error asking question:', error);
+      
+      const aiMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        message: "I'm having trouble connecting. Make sure the backend is running on port 8000.",
+        timestamp: new Date().toISOString()
+      };
+      setChatMessages(prev => [...prev, aiMessage]);
+    }
 
     setCurrentQuestion('');
   };
@@ -203,11 +247,6 @@ const SeeThePlayDashboard = () => {
         description: 'Weather conditions worsen - expect 15-20% decrease in passing stats',
         impact: 'negative'
       },
-      injury: {
-        type: 'player_injury',
-        description: 'Key player injury - redistributing target share and opportunities',
-        impact: 'mixed'
-      },
       script: {
         type: 'game_script',
         description: 'Game becomes high-scoring - all offensive stats likely to increase',
@@ -217,7 +256,14 @@ const SeeThePlayDashboard = () => {
 
     setScenario(scenarios[scenarioType]);
     
-    // Clear scenario after 5 seconds
+    // Send to backend via WebSocket
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'scenario_change',
+        data: { type: scenarioType, severity: 0.15 }
+      }));
+    }
+    
     setTimeout(() => setScenario(null), 5000);
   };
 
@@ -232,6 +278,7 @@ const SeeThePlayDashboard = () => {
       case 'touchdown': return '🏈';
       case 'field_goal': return '⚽';
       case 'pass_completion': return '✅';
+      case 'reception': return '📥';
       case 'rush_attempt': return '🏃';
       case 'sack': return '❌';
       default: return '📊';
@@ -370,6 +417,11 @@ const SeeThePlayDashboard = () => {
                           </div>
                           <div className="text-lg font-bold text-white">
                             {statData.predicted_value}
+                            {statData.live_stats > 0 && (
+                              <span className="text-xs text-green-400 ml-1">
+                                ({statData.live_stats} live)
+                              </span>
+                            )}
                           </div>
                           <div className="flex justify-between text-xs text-gray-300">
                             <span>Over: {(statData.probability_over * 100).toFixed(0)}%</span>
@@ -421,6 +473,11 @@ const SeeThePlayDashboard = () => {
                     </div>
                   </div>
                 ))}
+                {liveEvents.length === 0 && (
+                  <div className="text-sm text-gray-400 text-center py-4">
+                    Waiting for live events...
+                  </div>
+                )}
               </div>
             </div>
 
@@ -465,7 +522,7 @@ const SeeThePlayDashboard = () => {
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {['Why this prediction?', 'Confidence levels?', 'Risk factors?'].map((question) => (
+                {['How many passing yards?', 'Which player is best?', 'Any concerns?'].map((question) => (
                   <button
                     key={question}
                     onClick={() => setCurrentQuestion(question)}

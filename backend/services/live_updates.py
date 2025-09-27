@@ -1,10 +1,10 @@
-
-# backend/services/live_updates.py
+# backend/services/live_updates.py - COMPLETE FILE
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
 import json
 import random
+import re
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -81,21 +81,21 @@ class LiveUpdateManager:
         for quarter in range(1, 5):
             quarter_events = []
             
-            # 8-12 events per quarter
-            num_events = random.randint(8, 12)
+            # 10-15 events per quarter
+            num_events = random.randint(10, 15)
             
             for i in range(num_events):
                 event_time = current_time + timedelta(minutes=i*2, seconds=random.randint(0, 59))
                 
                 event_types = [
-                    'pass_completion', 'rush_attempt', 'touchdown', 
+                    'pass_completion', 'rush_attempt', 'reception', 'touchdown', 
                     'field_goal', 'interception', 'fumble', 'sack',
                     'timeout', 'penalty'
                 ]
                 
                 event_type = random.choices(
                     event_types,
-                    weights=[25, 20, 8, 5, 3, 2, 4, 15, 18]  # Realistic probabilities
+                    weights=[20, 15, 18, 8, 5, 3, 2, 4, 10, 15]  # Realistic probabilities
                 )[0]
                 
                 # Select random player for the event
@@ -120,13 +120,14 @@ class LiveUpdateManager:
         logger.info(f"Generated {len(events)} game events")
     
     def _generate_event_description(self, event_type: str, player: Dict) -> str:
-        """Generate realistic event descriptions"""
+        """Generate realistic event descriptions WITH YARDS"""
         
         player_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
         
         descriptions = {
-            'pass_completion': f"{player_name} completes pass for {random.randint(5, 25)} yards",
-            'rush_attempt': f"{player_name} rushes for {random.randint(1, 15)} yards",
+            'pass_completion': f"{player_name} completes pass for {random.randint(8, 25)} yards",
+            'rush_attempt': f"{player_name} rushes for {random.randint(2, 15)} yards",
+            'reception': f"{player_name} catches pass for {random.randint(8, 20)} yards",
             'touchdown': f"TOUCHDOWN! {player_name} scores from {random.randint(1, 25)} yards out",
             'field_goal': f"Field goal good from {random.randint(25, 50)} yards",
             'interception': f"Pass intercepted by defense",
@@ -138,17 +139,37 @@ class LiveUpdateManager:
         
         return descriptions.get(event_type, f"Game event: {event_type}")
     
+    def _extract_yards_from_event(self, event: Dict[str, Any]) -> int:
+        """Extract yards from event description"""
+        description = event.get('description', '')
+        
+        # Look for patterns like "15 yards", "for 20 yards"
+        match = re.search(r'(\d+)\s*yard', description)
+        if match:
+            return int(match.group(1))
+        
+        # Default yards by event type
+        yards_by_type = {
+            'pass_completion': 12,
+            'rush_attempt': 5,
+            'reception': 10,
+            'touchdown': 10
+        }
+        
+        return yards_by_type.get(event['type'], 0)
+    
     def _calculate_event_impact(self, event_type: str) -> Dict[str, float]:
         """Calculate how events impact future predictions"""
         
         impacts = {
-            'pass_completion': {'passing_yards': 1.05, 'confidence_boost': 0.02},
-            'rush_attempt': {'rushing_yards': 1.03, 'confidence_boost': 0.01},
-            'touchdown': {'touchdowns': 1.2, 'confidence_boost': 0.05},
+            'pass_completion': {'passing_yards': 1.02, 'confidence_boost': 0.01},
+            'rush_attempt': {'rushing_yards': 1.02, 'confidence_boost': 0.01},
+            'reception': {'receiving_yards': 1.02, 'confidence_boost': 0.01},
+            'touchdown': {'touchdowns': 1.1, 'confidence_boost': 0.05},
             'field_goal': {'confidence_boost': 0.01},
-            'interception': {'interceptions': 1.1, 'passing_yards': 0.95, 'confidence_penalty': 0.03},
+            'interception': {'interceptions': 1.1, 'passing_yards': 0.98, 'confidence_penalty': 0.02},
             'fumble': {'all_stats': 0.98, 'confidence_penalty': 0.02},
-            'sack': {'passing_yards': 0.97, 'confidence_penalty': 0.01},
+            'sack': {'passing_yards': 0.98, 'confidence_penalty': 0.01},
             'timeout': {'confidence_boost': 0.005},
             'penalty': {'all_stats': 0.99, 'confidence_penalty': 0.01}
         }
@@ -174,12 +195,12 @@ class LiveUpdateManager:
         logger.info("Simulation loop completed")
     
     async def _process_event(self, event: Dict[str, Any]):
-        """Process a single game event"""
+        """Process a single game event and update predictions"""
         
         # Update game state based on event
         self._update_game_state(event)
         
-        # Get updated predictions for affected player
+        # Get affected player
         player_id = event['player_id']
         affected_player = None
         
@@ -191,15 +212,22 @@ class LiveUpdateManager:
         if not affected_player:
             return
         
-        # Get updated predictions
         try:
+            # UPDATE LIVE STATS IN PREDICTION ENGINE
+            event_data = {
+                'type': event['type'],
+                'yards': self._extract_yards_from_event(event),
+                'touchdown': 'touchdown' in event['type'].lower() or 'TD' in event.get('description', '')
+            }
+            
+            # Feed the event to the prediction engine
+            self.prediction_engine.update_live_stats(player_id, event_data)
+            
+            # Get UPDATED predictions with new live stats
             updated_prediction = self.prediction_engine.predict_player_performance(
                 affected_player, 
                 self.current_game['home_team']['id']
             )
-            
-            # Apply event impact to predictions
-            self._apply_event_impact(updated_prediction, event)
             
             # Generate explanation
             explanation = self.cedar_explainer.generate_explanation(updated_prediction)
@@ -234,45 +262,29 @@ class LiveUpdateManager:
         elif event['type'] == 'field_goal':
             self.current_game['home_score'] += 3
     
-    def _apply_event_impact(self, prediction: Dict[str, Any], event: Dict[str, Any]):
-        """Apply event impact to prediction values"""
-        
-        impact = event.get('impact', {})
-        predictions = prediction.get('predictions', {})
-        
-        for stat_type, pred_data in predictions.items():
-            # Apply specific stat impacts
-            if stat_type in impact:
-                multiplier = impact[stat_type]
-                pred_data['predicted_value'] *= multiplier
-                pred_data['predicted_value'] = round(pred_data['predicted_value'], 1)
-            
-            # Apply general impacts
-            if 'all_stats' in impact:
-                multiplier = impact['all_stats']
-                pred_data['predicted_value'] *= multiplier
-                pred_data['predicted_value'] = round(pred_data['predicted_value'], 1)
-            
-            # Apply confidence adjustments
-            if 'confidence_boost' in impact:
-                pred_data['confidence'] = min(1.0, pred_data['confidence'] + impact['confidence_boost'])
-            elif 'confidence_penalty' in impact:
-                pred_data['confidence'] = max(0.0, pred_data['confidence'] - impact['confidence_penalty'])
-            
-            pred_data['confidence'] = round(pred_data['confidence'], 3)
-    
     def _generate_impact_analysis(self, event: Dict[str, Any], prediction: Dict[str, Any]) -> str:
         """Generate analysis of how the event impacted predictions"""
         
         event_type = event['type']
         player_name = event['player_name']
         
+        # Get live stats from prediction
+        live_stats_summary = []
+        for stat_type, pred_data in prediction.get('predictions', {}).items():
+            live_value = pred_data.get('live_stats', 0)
+            if live_value > 0:
+                live_stats_summary.append(f"{live_value} {stat_type.replace('_', ' ')}")
+        
+        if live_stats_summary:
+            stats_str = ", ".join(live_stats_summary)
+            return f"{player_name} now has {stats_str} in this game. Predictions adjusted based on current performance."
+        
         if event_type == 'touchdown':
             return f"{player_name}'s touchdown increases their likelihood of continued scoring success this game."
         elif event_type == 'interception':
             return f"The interception may indicate defensive pressure, potentially limiting passing opportunities."
-        elif event_type == 'pass_completion':
-            return f"Successful completion shows {player_name} is finding rhythm in the passing game."
+        elif event_type in ['pass_completion', 'reception']:
+            return f"Successful play shows {player_name} is finding rhythm in the game."
         elif event_type == 'rush_attempt':
             return f"Ground game involvement suggests {player_name} will continue to see carries."
         else:
