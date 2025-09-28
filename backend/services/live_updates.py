@@ -106,11 +106,54 @@ class LiveUpdateManager:
             
             if message_type == 'game_reset':
                 await self.reset_game(message.get('data'))
-            elif message_type == 'cedar_question':
-                # Handle Cedar AI questions
+            elif message_type in ('cedar_question', 'chatgpt_question'):
+                # Handle AI questions (legacy 'cedar' name supported)
                 question = message.get('question')
                 player_id = message.get('player_id')
-                # Process question and generate response...
+                reply_type = 'chatgpt_answer' if message_type == 'chatgpt_question' else 'cedar_answer'
+
+                player_obj = None
+                if self.current_game:
+                    for p in self.current_game.get('players', []):
+                        if p.get('id') == player_id:
+                            player_obj = p
+                            break
+
+                if not player_obj:
+                    await self.connection_manager.broadcast({
+                        'type': reply_type,
+                        'question': question,
+                        'answer': f'Player with id {player_id} not found',
+                        'player_id': player_id
+                    })
+                    return
+
+                try:
+                    # Generate latest prediction and explanation for the player
+                    pred = self.prediction_engine.predict_player_performance(player_obj, self.current_game['home_team']['id'])
+                    explanation = self.cedar_explainer.generate_explanation(pred)
+
+                    answer = self.cedar_explainer.answer_question(question, {
+                        'player_name': pred.get('player_name'),
+                        'position': pred.get('position'),
+                        'predictions': pred.get('predictions', {}),
+                        'explanation': explanation
+                    })
+
+                    await self.connection_manager.broadcast({
+                        'type': reply_type,
+                        'question': question,
+                        'answer': answer,
+                        'player_id': player_id
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing question in LiveUpdateManager: {e}")
+                    await self.connection_manager.broadcast({
+                        'type': reply_type,
+                        'question': question,
+                        'answer': 'Sorry, I could not process your question right now.',
+                        'player_id': player_id
+                    })
             elif message_type == 'scenario_change':
                 # Handle scenario changes
                 await self.handle_scenario_change(message.get('data', {}))

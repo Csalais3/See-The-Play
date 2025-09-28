@@ -7,7 +7,7 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-class CedarExplainer:
+class ChatGPTExplainer:
     def __init__(self):
         self.explanation_cache = {}
         # Initialize OpenAI client
@@ -15,7 +15,7 @@ class CedarExplainer:
         if api_key:
             self.client = OpenAI(api_key=api_key)
             self.use_gpt = True
-            logger.info("✅ Cedar initialized with GPT-4 integration")
+            logger.info("✅ ChatGPT initialized with OpenAI integration")
         else:
             self.client = None
             self.use_gpt = False
@@ -78,7 +78,9 @@ class CedarExplainer:
         }
     
     def answer_question(self, question: str, player_data: Dict[str, Any]) -> str:
-        """Answer questions using GPT-4 for natural conversations"""
+        """Answer questions using ChatGPT for natural conversations
+        Provides a concise answer and a short, non-sensitive explanation of the key factors that led to the result.
+        Does NOT disclose internal chain-of-thought or step-by-step reasoning."""
         
         # If GPT is available, use it for smart responses
         if self.use_gpt and self.client:
@@ -88,7 +90,7 @@ class CedarExplainer:
         return self._answer_with_patterns(question, player_data)
     
     def _answer_with_gpt(self, question: str, player_data: Dict[str, Any]) -> str:
-        """Use GPT-4 for intelligent answers"""
+        """Use OpenAI to provide a concise answer + brief explanation without revealing internal chain-of-thought."""
         
         player_name = player_data.get('player_name', 'Player')
         position = player_data.get('position', 'N/A')
@@ -107,39 +109,36 @@ class CedarExplainer:
         pred_text = "\n".join(pred_summary)
         overall_summary = explanation.get('overall_summary', '')
         
-        system_prompt = f"""You are Cedar, an AI assistant that explains sports predictions.
+        # System prompt explicitly requests a concise final answer + short explanation and avoids chain-of-thought
+        system_prompt = f"""You are ChatGPT, an assistant that explains sports predictions.
 
-Current Player: {player_name} ({position})
+Player: {player_name} ({position})
 
-Predictions:
-{pred_text}
+Predictions:\n{pred_text}
 
-Analysis: {overall_summary}
+Context: {overall_summary}
 
-Instructions:
-- Answer questions conversationally and helpfully
-- Always cite specific numbers from the data above
-- If asked about stats not in the data, say you don't have that information
-- Keep responses concise (under 100 words)
-- Be confident but acknowledge uncertainty where appropriate
-- Compare players when asked
-- Explain confidence levels and risk factors when relevant"""
-
+Instructions for the assistant:
+- Provide a concise answer to the user's question (1-3 sentences) followed by a short explanation of the key factors and numeric evidence supporting the answer (2-4 bullet points or sentences).
+- Do NOT reveal your internal chain-of-thought, step-by-step deliberation, or hidden internal reasoning.
+- When possible, cite specific numbers from the provided prediction data.
+- If the question asks about stats not present in the data, state what is missing and offer a best-effort, clearly-labeled estimate.
+- Keep answers friendly and concise."""
+        
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Fast and cheap
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question}
                 ],
-                max_tokens=200,
-                temperature=0.7
+                max_tokens=300,
+                temperature=0.3
             )
-            
             return response.choices[0].message.content.strip()
-            
+        
         except Exception as e:
-            logger.error(f"GPT API error: {e}")
+            logger.error(f"OpenAI API error: {e}")
             return "I'm having trouble connecting right now. Try asking about specific stats like 'passing yards' or 'confidence levels'."
     
     def _answer_with_patterns(self, question: str, player_data: Dict[str, Any]) -> str:
@@ -165,7 +164,7 @@ Instructions:
     
     # Keep ALL the other helper methods from your original file
     # (_generate_narrative_explanation, _generate_overall_summary, etc.)
-    # Just add them here...
+    # They remain unchanged below.
     
     def _generate_narrative_explanation(self, player_name: str, position: str, 
                                       pred_type: str, predicted_value: float, 
@@ -348,3 +347,6 @@ Instructions:
         if low_conf_stats:
             return f"Risk factors for {player_name}: uncertainty in {', '.join(low_conf_stats)}. These areas could vary significantly from predictions."
         return f"{player_name} has low risk with consistent predictions across all metrics."
+
+# Backwards-compatible alias: keep CedarExplainer available for other modules
+CedarExplainer = ChatGPTExplainer

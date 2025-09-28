@@ -78,7 +78,10 @@ async def lifespan(app: FastAPI):
     else:
         pulse_client = PulseAPIClient()
     prediction_engine = PredictionEngine(pulse_client)
-    cedar_explainer = CedarExplainer()
+    # Use the ChatGPT-based explainer (keeps backward-compatible alias)
+    from services.cedar_integration import ChatGPTExplainer
+    chatgpt_explainer = ChatGPTExplainer()
+    cedar_explainer = chatgpt_explainer  # keep old name for compatibility
     live_update_manager = LiveUpdateManager(pulse_client, prediction_engine, cedar_explainer, manager)
     
     # Start background tasks
@@ -162,10 +165,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 await live_update_manager.handle_scenario_change(message.get("data"))
 
             # Handle Cedar AI chat questions from frontend
-            elif message.get("type") == "cedar_question":
+            elif message.get("type") in ("cedar_question", "chatgpt_question"):
                 try:
                     question = message.get("question")
                     player_id = message.get("player_id")
+                    reply_type = 'chatgpt_answer' if message.get("type") == 'chatgpt_question' else 'cedar_answer'
 
                     player_obj = None
                     if live_update_manager and live_update_manager.current_game:
@@ -177,7 +181,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if not player_obj:
                         # Try to reply with a helpful error
                         await websocket.send_text(json.dumps({
-                            'type': 'cedar_answer',
+                            'type': reply_type,
                             'question': question,
                             'answer': f'Player with id {player_id} not found',
                             'player_id': player_id
@@ -195,15 +199,15 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
 
                         await websocket.send_text(json.dumps({
-                            'type': 'cedar_answer',
+                            'type': reply_type,
                             'question': question,
                             'answer': answer,
                             'player_id': player_id
                         }))
                 except Exception as e:
-                    logger.error(f"Error processing cedar_question: {e}")
+                    logger.error(f"Error processing question: {e}")
                     await websocket.send_text(json.dumps({
-                        'type': 'cedar_answer',
+                        'type': 'chatgpt_answer' if message.get('type') == 'chatgpt_question' else 'cedar_answer',
                         'question': message.get('question'),
                         'answer': 'Sorry, I could not process your question right now.',
                         'player_id': message.get('player_id')

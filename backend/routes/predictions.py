@@ -34,7 +34,7 @@ def get_prediction_engine():
     return PredictionEngine(get_pulse_client())
 
 def get_cedar_explainer():
-    """Get CedarExplainer instance"""
+    """Get ChatGPT-based explainer instance (backwards-compatible name: CedarExplainer)."""
     return CedarExplainer()
 
 # =============================================================================
@@ -203,7 +203,7 @@ async def get_team_predictions(
 async def get_player_prediction(
     player_id: str,
     team_id: str = Query(..., description="Team ID that the player belongs to"),
-    include_explanation: bool = Query(default=True, description="Include Cedar AI explanation"),
+    include_explanation: bool = Query(default=True, description="Include ChatGPT explanation"),
     pulse_client: PulseAPIClient = Depends(get_pulse_client),
     prediction_engine: PredictionEngine = Depends(get_prediction_engine),
     cedar_explainer: CedarExplainer = Depends(get_cedar_explainer)
@@ -214,7 +214,7 @@ async def get_player_prediction(
     Args:
         player_id: The player's unique identifier
         team_id: The team the player belongs to
-        include_explanation: Whether to include Cedar AI explanations
+        include_explanation: Whether to include ChatGPT explanations
     
     Returns:
         Detailed player prediction with optional explanations
@@ -256,9 +256,9 @@ async def get_player_prediction(
         
         result = {"prediction": prediction}
         
-        # Add Cedar AI explanation if requested
+        # Add ChatGPT explanation if requested
         if include_explanation:
-            logger.info(f"Generating Cedar explanation for player {player_id}")
+            logger.info(f"Generating ChatGPT explanation for player {player_id}")
             explanation = cedar_explainer.generate_explanation(prediction)
             result["explanation"] = explanation
         
@@ -281,18 +281,13 @@ async def explain_prediction(
     cedar_explainer: CedarExplainer = Depends(get_cedar_explainer)
 ) -> Dict[str, Any]:
     """
-    Generate Cedar AI explanation for existing prediction data
-    
+    Generate ChatGPT explanation for existing prediction data
+
     Request Body:
     {
-        "prediction_data": {
-            "player_id": "...",
-            "player_name": "...",
-            "predictions": {...},
-            "explanations": {...}
-        }
+        "prediction_data": { ... }
     }
-    
+
     Returns:
         Comprehensive explanation with narratives, factors, what-if scenarios
     """
@@ -303,7 +298,7 @@ async def explain_prediction(
         
         logger.info(f"Generating explanation for prediction data")
         
-        # Generate comprehensive explanation
+        # Generate comprehensive explanation using ChatGPT
         explanation = cedar_explainer.generate_explanation(prediction_data)
         
         logger.info("Successfully generated prediction explanation")
@@ -321,22 +316,20 @@ async def ask_question(
     cedar_explainer: CedarExplainer = Depends(get_cedar_explainer)
 ) -> Dict[str, str]:
     """
-    Ask a question about player predictions using Cedar AI
-    
+    Ask a question about player predictions using ChatGPT
+
     Request Body:
     {
         "question": "Why is Jalen Hurts predicted for 285 passing yards?",
-        "player_data": {
-            "player_name": "Jalen Hurts",
-            "predictions": {...},
-            "explanations": {...}
-        }
+        "player_data": { ... }
     }
-    
+
     Returns:
     {
-        "question": "Why is Jalen Hurts predicted for 285 passing yards?",
-        "answer": "Jalen Hurts is predicted for 285 passing yards because..."
+        "question": "...",
+        "answer": "...",
+        "model": "chatgpt",
+        "timestamp": "..."
     }
     """
     try:
@@ -351,12 +344,13 @@ async def ask_question(
         
         logger.info(f"Processing question: {question[:50]}...")
         
-        # Get answer from Cedar AI
+        # Get answer from ChatGPT-based explainer
         answer = cedar_explainer.answer_question(question, player_data)
         
         result = {
             "question": question,
             "answer": answer,
+            "model": "chatgpt",
             "timestamp": datetime.utcnow().isoformat()
         }
         

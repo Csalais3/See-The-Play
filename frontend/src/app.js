@@ -140,7 +140,7 @@ const SeeThePlayDashboard = () => {
               setScenario(message.scenario);
               if (message.updated_predictions) setPredictions(message.updated_predictions);
               setTimeout(() => setScenario(null), 5000);
-            } else if (message.type === 'cedar_answer') {
+            } else if (message.type === 'cedar_answer' || message.type === 'chatgpt_answer') {
               try {
                 let playerName = message.player_name || null;
                 if (!playerName && message.player_id) {
@@ -151,7 +151,7 @@ const SeeThePlayDashboard = () => {
                 setChatMessages(prev => [...prev, assistantMsg]);
                 setIsAssistantThinking(false);
               } catch (err) {
-                console.error('Error handling cedar_answer message:', err, message);
+                console.error('Error handling chat answer message:', err, message);
               }
             }
           } catch (err) {
@@ -212,7 +212,8 @@ const SeeThePlayDashboard = () => {
     const resolvedPlayerName = (() => { if (selectedPlayer) { const found = predictions.find(p => p.prediction.player_id === selectedPlayer); return found?.prediction?.player_name || null; } return predictions[0]?.prediction?.player_name || null; })();
     const userMessage = { id: Date.now(), type: 'user', text: currentQuestion, playerName: resolvedPlayerName, playerId: selectedPlayer || predictions[0]?.prediction?.player_id };
     setChatMessages(prev => [...prev, userMessage]);
-    safeSend({ type: 'cedar_question', question: currentQuestion, player_id: userMessage.playerId });
+    // Send to backend using ChatGPT message type (backwards-compatible handlers on server accept both)
+    safeSend({ type: 'chatgpt_question', question: currentQuestion, player_id: userMessage.playerId });
     setIsAssistantThinking(true);
     setCurrentQuestion('');
   };
@@ -1041,11 +1042,11 @@ const SeeThePlayDashboard = () => {
                   </div>
                 </div>
 
-                {/* Cedar AI Chat */}
+                {/* ChatGPT AI Explainer */}
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
                   <h3 className="text-lg font-bold mb-4 flex items-center">
                     <MessageCircle className="w-5 h-5 mr-2" />
-                    Cedar AI Explainer
+                    ChatGPT Explainer
                   </h3>
                   
                   <div className="h-64 overflow-y-auto mb-4 space-y-3">
@@ -1073,7 +1074,7 @@ const SeeThePlayDashboard = () => {
                     {isAssistantThinking && (
                       <div className="text-left">
                         <div className="inline-flex items-center max-w-xs p-3 rounded-lg text-sm bg-purple-500/10 text-purple-200" role="status" aria-live="polite">
-                          <span className="mr-2">Cedar is typing</span>
+                          <span className="mr-2">ChatGPT is typing</span>
                           <span className="inline-block w-3 h-3 rounded-full border-2 border-white/30 border-t-transparent animate-spin" aria-hidden="true" />
                         </div>
                       </div>
