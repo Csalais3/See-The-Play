@@ -60,6 +60,20 @@ export async function getPlayerStats(playerId) {
   return await fetchJSON(`/api/v1/players/${playerId}/stats`);
 }
 
+export async function evaluateLineup(lineup) {
+  // Expecting lineup to be { teamId, positions: { QB: playerId, RB: playerId, ... } }
+  try {
+    return await fetchJSON(`/api/v1/lineup/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lineup)
+    });
+  } catch (err) {
+    // If backend doesn't support lineup evaluation yet, rethrow to let frontend fallback
+    throw err;
+  }
+}
+
 export default {
   getTeamPredictions,
   getPlayerPrediction,
