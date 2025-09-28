@@ -13,6 +13,7 @@ import random
 from routes.predictions import router as predictions_router
 from routes.live import router as live_router
 from routes.health import router as health_router
+from routes.players import router as players_router
 from services.live_updates import LiveUpdateManager
 from services.ml_model import PredictionEngine
 from services.cedar_integration import CedarExplainer
@@ -64,7 +65,18 @@ async def lifespan(app: FastAPI):
     logger.info("Starting SeeThePlay backend...")
     
     # Initialize services
-    pulse_client = PulseAPIClient()
+    import os
+    use_mock = os.getenv("USE_PULSE_MOCK") == "1"
+    if use_mock:
+        try:
+            from pulse_mock import NFLMockClient
+            pulse_client = NFLMockClient()
+            logger.info("Using NFLMockClient for pulse data (USE_PULSE_MOCK=1)")
+        except Exception as e:
+            logger.error(f"Failed to initialize NFLMockClient, falling back to PulseAPIClient: {e}")
+            pulse_client = PulseAPIClient()
+    else:
+        pulse_client = PulseAPIClient()
     prediction_engine = PredictionEngine(pulse_client)
     cedar_explainer = CedarExplainer()
     live_update_manager = LiveUpdateManager(pulse_client, prediction_engine, cedar_explainer, manager)
@@ -101,19 +113,101 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(predictions_router, prefix="/api")
 app.include_router(live_router, prefix="/api")
+app.include_router(players_router, prefix="/api/v1")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+
+    # Immediately send current game state and initial predictions to the newly connected client
+    try:
+        if live_update_manager and live_update_manager.current_game:
+            try:
+                initial_predictions = []
+                for player in live_update_manager.current_game['players'][:5]:
+                    try:
+                        prediction = prediction_engine.predict_player_performance(
+                            player,
+                            live_update_manager.current_game['home_team']['id']
+                        )
+                        explanation = cedar_explainer.generate_explanation(prediction)
+                        initial_predictions.append({'prediction': prediction, 'explanation': explanation})
+                    except Exception as e:
+                        logger.error(f"Error generating initial prediction for player on connect: {e}")
+
+                initial_message = {
+                    'type': 'game_initialized',
+                    'timestamp': datetime.now().isoformat(),
+                    'game_state': live_update_manager._get_current_game_state(),
+                    'initial_predictions': initial_predictions,
+                    'message': 'Client connected - delivering current game state.'
+                }
+
+                await websocket.send_text(json.dumps(initial_message))
+                logger.info('Sent initial game state to newly connected client')
+            except Exception as e:
+                logger.error(f"Error sending initial game state to client: {e}")
+    except Exception:
+        # Non-fatal - proceed to the main receive loop
+        logger.exception('Unexpected error while sending initial state to client')
+
     try:
         while True:
             # Keep connection alive and listen for client messages
             data = await websocket.receive_text()
             message = json.loads(data)
-            
+
             # Handle client requests (like scenario changes)
             if message.get("type") == "scenario_change":
                 await live_update_manager.handle_scenario_change(message.get("data"))
+
+            # Handle Cedar AI chat questions from frontend
+            elif message.get("type") == "cedar_question":
+                try:
+                    question = message.get("question")
+                    player_id = message.get("player_id")
+
+                    player_obj = None
+                    if live_update_manager and live_update_manager.current_game:
+                        for p in live_update_manager.current_game.get('players', []):
+                            if p.get('id') == player_id:
+                                player_obj = p
+                                break
+
+                    if not player_obj:
+                        # Try to reply with a helpful error
+                        await websocket.send_text(json.dumps({
+                            'type': 'cedar_answer',
+                            'question': question,
+                            'answer': f'Player with id {player_id} not found',
+                            'player_id': player_id
+                        }))
+                    else:
+                        # Generate a fresh prediction and explanation for the player
+                        pred = prediction_engine.predict_player_performance(player_obj, live_update_manager.current_game['home_team']['id'])
+                        explanation = cedar_explainer.generate_explanation(pred)
+
+                        answer = cedar_explainer.answer_question(question, {
+                            'player_name': pred.get('player_name'),
+                            'position': pred.get('position'),
+                            'predictions': pred.get('predictions', {}),
+                            'explanation': explanation
+                        })
+
+                        await websocket.send_text(json.dumps({
+                            'type': 'cedar_answer',
+                            'question': question,
+                            'answer': answer,
+                            'player_id': player_id
+                        }))
+                except Exception as e:
+                    logger.error(f"Error processing cedar_question: {e}")
+                    await websocket.send_text(json.dumps({
+                        'type': 'cedar_answer',
+                        'question': message.get('question'),
+                        'answer': 'Sorry, I could not process your question right now.',
+                        'player_id': message.get('player_id')
+                    }))
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
@@ -132,6 +226,46 @@ async def root():
             "websocket": "/ws"
         }
     }
+
+@app.get("/api/live/diagnostics")
+async def live_diagnostics():
+    """Return internal live/simulation diagnostics useful for debugging the WebSocket and simulation."""
+    try:
+        diagnostics = {
+            'connected_clients': len(manager.active_connections) if manager else 0,
+            'simulation_running': bool(live_update_manager.is_running) if live_update_manager else False,
+            'current_game': getattr(live_update_manager, 'current_game', None) is not None if live_update_manager else False,
+            'event_index': getattr(live_update_manager, 'event_index', None) if live_update_manager else None,
+            'events_loaded': len(getattr(live_update_manager, 'game_events', [])) if live_update_manager else 0
+        }
+        return diagnostics
+    except Exception as e:
+        logger.error(f"Error in diagnostics endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/live/start")
+async def api_start_simulation():
+    """HTTP endpoint to (re)start the live simulation. Useful for debugging when the automatic startup failed."""
+    try:
+        if not live_update_manager:
+            raise HTTPException(status_code=500, detail='LiveUpdateManager not initialized')
+        await live_update_manager.start_simulation()
+        return {'status': 'started'}
+    except Exception as e:
+        logger.error(f"Failed to start simulation via API: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/live/stop")
+async def api_stop_simulation():
+    """Stop the live simulation."""
+    try:
+        if not live_update_manager:
+            raise HTTPException(status_code=500, detail='LiveUpdateManager not initialized')
+        await live_update_manager.stop_simulation()
+        return {'status': 'stopped'}
+    except Exception as e:
+        logger.error(f"Failed to stop simulation via API: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(

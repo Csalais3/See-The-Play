@@ -19,8 +19,6 @@ class LiveUpdateManager:
         self.current_game = None
         self.game_events = []
         self.event_index = 0
-        self.game_clock_seconds = None
-        self._clock_task: Optional[asyncio.Task] = None
         
     async def start_simulation(self):
         """Start the live game simulation"""
@@ -32,9 +30,6 @@ class LiveUpdateManager:
             
             # Start the simulation loop
             asyncio.create_task(self._simulation_loop())
-            # Start the game clock task
-            if self._clock_task is None or self._clock_task.done():
-                self._clock_task = asyncio.create_task(self._game_clock_loop())
             
             logger.info("✅ Live simulation started successfully")
         except Exception as e:
@@ -43,80 +38,7 @@ class LiveUpdateManager:
     async def stop_simulation(self):
         """Stop the live simulation"""
         self.is_running = False
-        # Cancel clock task if running
-        if self._clock_task and not self._clock_task.done():
-            self._clock_task.cancel()
-            self._clock_task = None
         logger.info("Live simulation stopped")
-
-    async def reset_game(self, game_data: Dict[str, Any] = None):
-        """Reset the game state and restart simulation"""
-        try:
-            logger.info("🔄 Resetting game state...")
-            
-            # Stop current simulation
-            await self.stop_simulation()
-            
-            # Reset game state
-            if game_data:
-                self.current_game.update({
-                    'quarter': game_data.get('quarter', 1),
-                    'time_remaining': game_data.get('time_remaining', '15:00'),
-                    'home_score': game_data.get('home_score', 0),
-                    'away_score': game_data.get('away_score', 0),
-                    'status': 'in_progress'
-                })
-            else:
-                # Reset to default state
-                self.current_game.update({
-                    'quarter': 1,
-                    'time_remaining': '15:00',
-                    'home_score': 0,
-                    'away_score': 0,
-                    'status': 'in_progress'
-                })
-            
-            # Reset game clock
-            self.game_clock_seconds = 15 * 60
-            
-            # Reset event index to start generating new events
-            self.event_index = 0
-            
-            # Generate new game events
-            self._generate_game_events()
-            
-            # Restart simulation
-            self.is_running = True
-            if self._clock_task is None or self._clock_task.done():
-                self._clock_task = asyncio.create_task(self._game_clock_loop())
-            
-            # Broadcast reset state
-            await self._broadcast_game_state()
-            
-            logger.info("✅ Game reset complete")
-            
-        except Exception as e:
-            logger.error(f"❌ Error resetting game: {e}")
-            raise
-
-    async def handle_websocket_message(self, message: Dict[str, Any]):
-        """Handle incoming WebSocket messages"""
-        try:
-            message_type = message.get('type')
-            
-            if message_type == 'game_reset':
-                await self.reset_game(message.get('data'))
-            elif message_type == 'cedar_question':
-                # Handle Cedar AI questions
-                question = message.get('question')
-                player_id = message.get('player_id')
-                # Process question and generate response...
-            elif message_type == 'scenario_change':
-                # Handle scenario changes
-                await self.handle_scenario_change(message.get('data', {}))
-            
-        except Exception as e:
-            logger.error(f"Error handling WebSocket message: {e}")
     
     async def _initialize_game(self):
         """Initialize current game and generate events"""
@@ -153,9 +75,6 @@ class LiveUpdateManager:
             'away_score': 0,
             'players': eagles_players[:10]  # Use first 10 players
         }
-        # Initialize game clock (start of quarter: 15 minutes)
-        self.game_clock_seconds = 15 * 60
-        self.current_game['time_remaining'] = f"{self.game_clock_seconds // 60:02d}:{self.game_clock_seconds % 60:02d}"
         
         logger.info(f"Game initialized with {len(self.current_game['players'])} players")
         
@@ -268,49 +187,6 @@ class LiveUpdateManager:
             await self._process_event(event)
             
         logger.info("✅ Simulation loop completed")
-    
-    async def _game_clock_loop(self):
-        """Background task that decrements the game clock and advances quarters."""
-        try:
-            while self.is_running and self.current_game and self.current_game.get('status') == 'in_progress':
-                await asyncio.sleep(1)
-
-                # Ensure clock initialized
-                if self.game_clock_seconds is None:
-                    self.game_clock_seconds = 15 * 60
-
-                # Decrement clock
-                self.game_clock_seconds = max(0, self.game_clock_seconds - 1)
-                mins = self.game_clock_seconds // 60
-                secs = self.game_clock_seconds % 60
-                self.current_game['time_remaining'] = f"{mins:02d}:{secs:02d}"
-
-                # If clock hits zero, advance quarter or end game
-                if self.game_clock_seconds == 0:
-                    if self.current_game['quarter'] < 4:
-                        self.current_game['quarter'] += 1
-                        # reset clock for next quarter
-                        self.game_clock_seconds = 15 * 60
-                        self.current_game['time_remaining'] = '15:00'
-                    else:
-                        # Auto-reset game when Q4 ends
-                        await self.reset_game()
-
-                # Broadcast tick (small update) so clients update clocks
-                try:
-                    await self.connection_manager.broadcast({
-                        'type': 'tick',
-                        'timestamp': datetime.now().isoformat(),
-                        'game_state': self._get_current_game_state()
-                    })
-                except Exception as e:
-                    logger.debug(f"Failed to broadcast tick: {e}")
-
-            logger.info('Game clock loop exiting')
-        except asyncio.CancelledError:
-            logger.info('Game clock task cancelled')
-        except Exception as e:
-            logger.error(f"Game clock error: {e}")
     
     async def _process_event(self, event: Dict[str, Any]):
         """Process a single game event and update predictions"""
