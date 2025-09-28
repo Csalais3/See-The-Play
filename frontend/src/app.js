@@ -448,13 +448,14 @@ const SeeThePlayDashboard = () => {
 
   // Position coordinates on the SVG field (percentages)
   const POS_COORDS = {
-    QB: { x: 50, y: 55 },
-    RB: { x: 50, y: 72 },
-    WR1: { x: 20, y: 38 },
-    WR2: { x: 20, y: 72 },
-    TE: { x: 40, y: 50 },
-    K: { x: 85, y: 90 },
-    DEF: { x: 85, y: 50 }
+    // Home-oriented coordinates (left side). Away markers mirror these.
+    QB: { x: 35, y: 55 },
+    RB: { x: 35, y: 72 },
+    WR1: { x: 18, y: 38 },
+    WR2: { x: 18, y: 72 },
+    TE: { x: 28, y: 50 },
+    K: { x: 8, y: 90 },
+    DEF: { x: 8, y: 50 }
   };
 
   // Load team players when either team is chosen for the playground
@@ -589,17 +590,11 @@ const SeeThePlayDashboard = () => {
     const awayTeamLabel = awayTeamObj ? (awayTeamObj.market ? `${awayTeamObj.market} ${awayTeamObj.name}` : awayTeamObj.name) : 'AWAY';
     return (
       <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 mb-6 border border-white/10 text-gray-300">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-center mb-1">
           <h2 className="text-xl font-bold">Playground — Build a Lineup</h2>
-          <div className="flex items-center gap-2">
-            <select value={playHomeTeam || ''} onChange={(e) => { setPlayHomeTeam(e.target.value || null); }} className="bg-white/5 px-3 py-1 rounded text-sm">
-              <option value="">Select Home Team...</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.market ? `${t.market} ${t.name}` : t.name}</option>)}
-            </select>
-            <select value={playAwayTeam || ''} onChange={(e) => { setPlayAwayTeam(e.target.value || null); }} className="bg-white/5 px-3 py-1 rounded text-sm">
-              <option value="">Select Away Team...</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.market ? `${t.market} ${t.name}` : t.name}</option>)}
-            </select>
+        </div>
+        <div className="flex items-center justify-center mb-4">
+          <div className="flex gap-3">
             <button onClick={clearLineup} className="px-3 py-1 bg-white/5 rounded text-sm">Reset</button>
             <button onClick={evaluateLineup} disabled={evaluatingLineup || !playHomeTeam || !playAwayTeam} className="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 rounded text-sm">{evaluatingLineup ? 'Evaluating…' : 'Confirm & Evaluate'}</button>
           </div>
@@ -608,6 +603,13 @@ const SeeThePlayDashboard = () => {
         <div className="grid grid-cols-3 gap-6">
           {/* Home list */}
           <div>
+            <label className="block text-sm text-gray-300 mb-1">Home Team</label>
+            <div className="flex items-center gap-2 -mt-1">
+              <select value={playHomeTeam || ''} onChange={(e) => { setPlayHomeTeam(e.target.value || null); }} className="bg-white/5 px-3 py-1 rounded text-sm">
+                <option value="">Select Home Team...</option>
+                {teams.map(t => <option key={t.id} value={t.id}>{t.market ? `${t.market} ${t.name}` : t.name}</option>)}
+              </select>
+            </div>
             <div className="text-sm font-semibold mb-2">Home ({playHomeTeam ? playHomeTeam : 'No team'})</div>
             <div className="space-y-3">
               {PLAY_POSITIONS.map(pos => (
@@ -666,9 +668,7 @@ const SeeThePlayDashboard = () => {
                   );
                 })}
 
-                {/* Center logo and midfield marker */}
-                <circle cx="150" cy="80" r="20" fill="#ffffff" fillOpacity="0.06" stroke="#ffffff" strokeOpacity="0.12" />
-                <text x="150" y="85" fontSize="12" fill="#ffffff" textAnchor="middle" opacity="0.9" fontWeight="700">PLAY</text>
+                {/* Center logo removed per request */}
 
                 {/* Small goalpost stylized markers (simple) */}
                 <g transform="translate(145,4)" opacity="0.9">
@@ -682,8 +682,8 @@ const SeeThePlayDashboard = () => {
               {PLAY_POSITIONS.map(pos => {
                 const home = POS_COORDS[pos];
                 const away = { x: 100 - home.x, y: home.y };
-                const homeInitials = homeLineup[pos] ? (homeLineup[pos].first_name[0] + (homeLineup[pos].last_name?.[0] || '')) : pos;
-                const awayInitials = awayLineup[pos] ? (awayLineup[pos].first_name[0] + (awayLineup[pos].last_name?.[0] || '')) : pos;
+                const homeInitials = homeLineup[pos] ? (homeLineup[pos].first_name[0] + (homeLineup[pos].last_name?.[0] || '')) : '';
+                const awayInitials = awayLineup[pos] ? (awayLineup[pos].first_name[0] + (awayLineup[pos].last_name?.[0] || '')) : '';
                 return (
                   <div key={`pos-${pos}`}>
                     <button
@@ -709,17 +709,26 @@ const SeeThePlayDashboard = () => {
             </div>
           </div>
 
-          {/* Away list */}
-          <div>
-            <div className="text-sm font-semibold mb-2">Away ({playAwayTeam ? playAwayTeam : 'No team'})</div>
-            <div className="space-y-3">
+          {/* Away list (right-aligned; name to the left of the selector) */}
+          <div className="flex flex-col items-end">
+            <div className="mb-1 w-full max-w-[260px]">
+              <label className="block text-sm text-gray-300 mb-0 text-right">Away Team</label>
+              <div className="flex items-center justify-end -mt-1">
+                <select value={playAwayTeam || ''} onChange={(e) => { setPlayAwayTeam(e.target.value || null); }} className="bg-white/5 px-3 py-1 rounded text-sm">
+                  <option value="">Select Away Team...</option>
+                  {teams.map(t => <option key={t.id} value={t.id}>{t.market ? `${t.market} ${t.name}` : t.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="text-sm font-semibold mb-2 text-right">Away ({playAwayTeam ? playAwayTeam : 'No team'})</div>
+            <div className="space-y-3 w-full max-w-[260px]">
               {PLAY_POSITIONS.map(pos => (
-                <div key={`away-list-${pos}`} className="flex items-center gap-3">
-                  <button onClick={() => openPicker(pos, 'away')} className="w-12 h-12 rounded-full bg-red-600 flex items-center justify-center text-xs font-semibold text-white">{pos}</button>
-                  <div className="text-sm">
+                <div key={`away-list-${pos}`} className="flex items-center gap-2 justify-end w-full">
+                  <div className="text-sm text-right mr-1 max-w-[160px] truncate">
                     <div className="font-medium">{awayLineup[pos] ? `${awayLineup[pos].first_name} ${awayLineup[pos].last_name}` : <span className="text-gray-400">Select player</span>}</div>
                     <div className="text-xs text-gray-400">{awayLineup[pos]?.position || ''}</div>
                   </div>
+                  <button onClick={() => openPicker(pos, 'away')} className="w-12 h-12 rounded-full bg-red-600 flex items-center justify-center text-xs font-semibold text-white">{pos}</button>
                 </div>
               ))}
             </div>
@@ -1100,10 +1109,7 @@ const SeeThePlayDashboard = () => {
               </div>
             </div>
           </>
-        ) : activePage === 'playground' ? (
-          // Render the full playground (field SVG + markers + pickers)
-          renderPlayground()
-         ) : activePage === 'live' ? (
+        ) : activePage === 'playground' ? renderPlayground() : activePage === 'live' ? (
           // Live page
           <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 mb-6 border border-white/10 text-gray-300">
             <h2 className="text-xl font-bold mb-4 flex items-center">
@@ -1148,13 +1154,7 @@ const SeeThePlayDashboard = () => {
                     <div className="text-2xl font-bold text-gray-400">--</div>
                     <div className="text-sm text-gray-400">Ravens</div>
                   </div>
-                  <div className="text-center px-4">
-                    <div className="text-sm font-semibold text-gray-400">VS</div>
-                  </div>
-                  <div className="text-center flex-1">
-                    <div className="text-2xl font-bold text-gray-400">--</div>
-                    <div className="text-sm text-gray-400">Browns</div>
-                  </div>
+                  <div className="text-sm text-gray-400">Browns</div>
                 </div>
                 <div className="mt-4">
                   <button className="w-full bg-white/5 hover:bg-white/10 text-gray-400 py-2 rounded text-sm transition-colors">
