@@ -1,4 +1,4 @@
-// frontend/src/App.js - FINAL FIXED VERSION
+// frontend/src/App.js - FINAL FIXED VERSIONs
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, TrendingUp, MessageCircle, Zap, Target, AlertTriangle, Info } from 'lucide-react';
 import { getTeams, getTeamDetails, getTeamPlayers, getTeamStats, getPlayerStats, API_BASE_URL, getPlayerPredictions as apiGetPlayerPredictions } from './services/api';
